@@ -1,14 +1,14 @@
 #include <stdio.h>
 
 // __global__ : declaration specifier (aka declspec): a C-language construct => CUDA knows this is a kernel and not CPU code
-__global__ void square(float *d_out, float *d_in) {
+__global__ void cube(float *d_out, float *d_in) {
     int idx = threadIdx.x; //(dim3: a C-Struct with .x .y and .z)tells each thread its index within a block
     float f = d_in[idx];
-    d_out[idx] = f * f;
+    d_out[idx] = f * f *f;
 }
 
 int main(int argc, char **argv) {
-    const int ARRAY_SIZE = 64;
+    const int ARRAY_SIZE = 96;
     const int ARRAY_BYTES = ARRAY_SIZE * sizeof(float);
 
     // generate the input array on the host
@@ -29,8 +29,8 @@ int main(int argc, char **argv) {
     // transfer the array to the GPU
     cudaMemcpy(d_in, h_in, ARRAY_BYTES, cudaMemcpyHostToDevice);
 
-    // launch the kernel on one block of 64 elements
-    square<<<1, ARRAY_SIZE>>>(d_out, d_in); // tells the CPU to launch on the GPU 64 copies of the kernel on 64 threads
+    // launch the kernel on one block of 96 threads | KERNEL <<<grid of blocks, blocks of threads>>>(...) | 1, 2 or 3D - dim3(x,y,z) dim3(w,1,1) == dim3(w) == w
+    cube<<<1, ARRAY_SIZE>>>(d_out, d_in); // tells the CPU to launch on the GPU 96 copies of the kernel on 96 threads
 
     // copy back the result array to the CPU
     cudaMemcpy(h_out, d_out, ARRAY_BYTES, cudaMemcpyDeviceToHost);

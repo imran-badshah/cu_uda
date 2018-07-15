@@ -1,2 +1,2 @@
 Squaring numbers:
-https://www.youtube.com/watch?v=C3OXM7SHQ-s&index=32&list=PLGvfHSgImk4aweyWlhBXNF6XISY3um82_
+https://www.youtube.com/watch?v=CMxtrWOjLLI-s&index=39&list=PLGvfHSgImk4aweyWlhBXNF6XISY3um82_
