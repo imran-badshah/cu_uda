@@ -30,6 +30,7 @@ int main(int argc, char **argv) {
     cudaMemcpy(d_in, h_in, ARRAY_BYTES, cudaMemcpyHostToDevice);
 
     // launch the kernel on one block of 96 threads | KERNEL <<<grid of blocks, blocks of threads>>>(...) | 1, 2 or 3D - dim3(x,y,z) dim3(w,1,1) == dim3(w) == w
+    // kernel<<<dim3(bx,by,bz), dim3(tx,ty,tz), shmem>>>(...) | shmem = shared mem per block in bytes -> defaults to 0
     cube<<<1, ARRAY_SIZE>>>(d_out, d_in); // tells the CPU to launch on the GPU 96 copies of the kernel on 96 threads
 
     // copy back the result array to the CPU
