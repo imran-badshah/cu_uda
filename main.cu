@@ -1,87 +1,104 @@
 #include <stdio.h>
 
-// __global__ : declaration specifier (aka declspec): a C-language construct => CUDA knows this is a kernel and not CPU code
-__global__ void rgba_to_greyscale(const uchar4* const rbgaImage, unsigned char* const greyImage, int numRows, int numCols) {
-    // TO-DO:
-    // Fill in the kernel to convert from colour to greyscale
-    // the mapping from components of a uchar4 to RGBA is:
-    // .x -> R; .y -> G; .z -> B; .w -> A
-    //
-    // The output (greyImage) at each pixel should be the result of
-    // applying the formula: output = .299f * R + .587f *G + .114f * B;
-    // Note: We will be ignoring the alpha channel for this conversion
+// Using different memory spaces in CUDA
 
-    // First create a mapping from the 2D block and grid locations
-    // to an absolute 2D location in the image, then use that to
-    // calculate a 1D offset
-    int y = threadIdx.y + blockIdx.y * blockDim.y;
-    int x = threadIdx.x + blockIdx.x * blockDim.x;
-    if (y < numCols && x < numRows) {
-        int index = numRows * y + x;
-        uchar4 colour = rbgaImage[index];
-        unsigned char grey = (unsigned char)(0.299f * colour.x + 0.587f * colour.y + 0.114f * colour.z);
-        greyImage[index] = grey;
-    }
-}
+/********************
+ * using local mem  *
+ ********************/
 
-void your_rgba_to_greyscale(const uchar4* const h_rgbaImage, uchar4* const d_rgbaImage, 
-                            unsigned char* const d_greyImage, size_t numRows, size_t numCols)
+// A __device__ or __global__ function (kernel) runs on the GPU
+__global__ void use_local_memory_GPU(float in)
 {
-    // You must fill in the correct sizes for the blockSize and gridSize
-    // currently only one block with one thread is being launched
-    // const dim3 blockSize(1, 1, 1); // TO-DO
-    int blockWidth = 32;
-    const dim3 blockSize(blockWidth, blockWidth, 1);
-
-    // const dim3 gridSize(numCols, numRows, 1); // TO-DO
-    int blocksX = numRows / blockWidth + 1;
-    int blocksY = numCols / blockWidth + 1;
-    const dim3 gridSize(blocksX, blocksY, 1);
-
-    rgba_to_greyscale<<<gridSize, blockSize>>>(d_rgbaImage, d_greyImage, numRows, numCols);
-
-    cudaDeviceSynchronize();
-    checkCudaErrors(cudaGetLastError());
+    float f;    // Var "f" is in local mem & private to each thread
+    f = in;     // Param "in" is in local mem & private to each thread
+    // ... real code would presumably do other stuff here ...
 }
 
-int main(int argc, char **argv) {
-    const int ARRAY_SIZE = 96;
-    const int ARRAY_BYTES = ARRAY_SIZE * sizeof(float);
+/********************
+ * using global mem *
+ ********************/
 
-    // generate the input array on the host
-    float h_in[ARRAY_SIZE];
-    for (int i=0; i<ARRAY_SIZE; i++) {
-        h_in[i] = float(i);
+// A __global__ function (kernel) runs on the GPU & can be called from host
+__global__ void use_global_memory_GPU(float *array)
+{
+    // "array" is a pointer into global memory on the device
+    array[threadIdx.x] = 2.0f * (float) threadIdx.x;
+}
+
+/********************
+ * using shared mem *
+ ********************/
+
+ // Omitting out-of-bounds checks
+ __global__ void use_shared_memory_GPU(float *array)
+{
+    // Local variables, private to each thread
+    int i, index = threadIdx.x;
+    float average, sum = 0.0f;
+
+    // __shared__ variables are visible to all threads in the thread block
+    // and have the same lifetime as the thread block
+    __shared__ float sh_arr[128];
+
+    // Copy data from "array" in global memory to sh_arr in shared memory
+    // Here, each thread is responsible for copying a single element
+    sh_arr[index] = array[index];
+
+    __syncthreads(); // Ensure all the writes to shared memory have completed
+
+    // Now, sh_arr is fully populated
+    for(i = 0; i < index; i++)
+    {
+        sum += sh_arr[i];
     }
-    float h_out[ARRAY_SIZE];
+    average = sum / (index + 1.0f);
 
-    // declare GPU memory pointers
-    float *d_in;
-    float *d_out;
-
-    // allocate GPU memory for the above pointers
-    cudaMalloc((void **) &d_in, ARRAY_BYTES);
-    cudaMalloc((void **) &d_out, ARRAY_BYTES);
-
-    // transfer the array to the GPU
-    cudaMemcpy(d_in, h_in, ARRAY_BYTES, cudaMemcpyHostToDevice);
-
-    // launch the kernel on one block of 96 threads | KERNEL <<<grid of blocks, blocks of threads>>>(...) | 1, 2 or 3D - dim3(x,y,z) dim3(w,1,1) == dim3(w) == w
-    // kernel<<<dim3(bx,by,bz), dim3(tx,ty,tz), shmem>>>(...) | shmem = shared mem per block in bytes -> defaults to 0
-    cube<<<1, ARRAY_SIZE>>>(d_out, d_in); // tells the CPU to launch on the GPU 96 copies of the kernel on 96 threads
-
-    // copy back the result array to the CPU
-    cudaMemcpy(h_out, d_out, ARRAY_BYTES, cudaMemcpyDeviceToHost);
-
-    // print out the resulting array
-    for (int i=0; i<ARRAY_SIZE; i++) {
-        printf("%f", h_out[i]);
-        printf(((i % 4) != 3) ? "\t" : "\n");
+    // If array[index] is greater than the average of array[0..index-1], replace with average
+    // Since array[] is in global memory, this change will be seen by the host (and potentially other thread blocks, if any)
+    if (array[index] > average)
+    {
+        array[index] = average;
     }
+}
 
-    // free GPU memory allocation
-    cudaFree(d_in);
-    cudaFree(d_out);
+
+int main(int argc, char **argv)
+{
+    /*
+     * First, call a kernel that shows using local mem
+     */
+    use_local_memory_GPU<<1, 128>>(2.0f);
+
+    /*
+     * Next, call a kernel that shows using global mem
+     */
+    float h_arr[128]; // Convention: h_ vars live on host
+    float* d_arr; // Convention: d_ vars live on device (GPU global mem)
+
+    // Allocate global memory (128 floats) on the device, place result in "d_arr" (pointer to array)
+    cudaMalloc((void **) &d_arr, sizeof(float) * 128); // Passing a pointer to var d_arr (which is itself a pointer)
+
+    // Now copy data from host memory "h_arr" to device memory "d_arr"
+    cudaMemcpy((void *) d_arr, (void *) h_arr, sizeof(float) * 128, cudaMemcpyHostToDevice);
+
+    // Launch the kernel (1 block of 128 threads)
+    use_global_memory_GPU<<<1, 128>>>(d_arr); // Modifies the contents of array at d_arr
+
+    // Copy the modified array back to the host, overwriting contents of h_arr
+    cudaMemcpy((void *) h_arr, (void *) d_arr, sizeof(float) * 128, cudaMemcpyDeviceToHost);
+    
+    // ... Do other stuff ...
+    
+    /*
+     * Next, call a kernel that shows using global mem
+     */
+
+    // As before, pass in a pointer to a data in global memory
+    use_shared_memory_GPU<<<1, 128>>>(d_arr);
+    // Copy the modified array back to host
+    cudaMemcpy((void *) h_arr, (void *) d_arr, sizeof (float) * 128, cudaMemcpyHostToDevice);
+
+    // ... Do other stuff ...
 
     return 0;
 }
